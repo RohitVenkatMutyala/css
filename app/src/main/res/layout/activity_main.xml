@@ -4,9 +4,10 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="#0F172A"
     tools:context=".MainActivity">
 
-    <!-- Camera Preview -->
+    <!-- Full-screen Camera Preview -->
     <androidx.camera.view.PreviewView
         android:id="@+id/viewFinder"
         android:layout_width="match_parent"
@@ -16,53 +17,150 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Top Banner for Class A Success / Normal Scanning -->
-    <TextView
-        android:id="@+id/statusBanner"
+    <!-- Dark gradient top overlay -->
+    <View
         android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:background="#80000000"
-        android:gravity="center"
-        android:text="SCANNING FACE..."
-        android:textColor="#FFFFFF"
-        android:textSize="18sp"
-        android:textStyle="bold"
+        android:layout_height="120dp"
+        android:background="@android:color/transparent"
+        android:backgroundTint="#CC0F172A"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- Bottom HUD displaying model outputs -->
+    <!-- Top header bar -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp"
+        android:background="#CC0F172A"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔒  FACE AUTH SECURE"
+            android:textColor="#00E676"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.15" />
+
+        <TextView
+            android:id="@+id/statusBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Initializing biometric scanner..."
+            android:textColor="#94A3B8"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Bottom HUD Card (glassmorphic) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#99000000"
-        android:padding="16dp"
+        android:background="#E60F172A"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:paddingTop="20dp"
+        android:paddingBottom="24dp"
         app:layout_constraintBottom_toBottomOf="parent">
 
-        <TextView
-            android:id="@+id/labelView"
+        <!-- Classification label row -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Classification: SCANNING"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/confidenceView"
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="CLASSIFICATION"
+                android:textColor="#64748B"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.2" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="CONFIDENCE"
+                android:textColor="#64748B"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.2"
+                android:gravity="end" />
+        </LinearLayout>
+
+        <!-- Classification value row -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="P(Class B) = 0.000"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp">
+
+            <TextView
+                android:id="@+id/labelView"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="SCANNING..."
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/confidenceView"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="—"
+                android:textColor="#94A3B8"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:gravity="end" />
+        </LinearLayout>
+
+        <!-- Divider -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="12dp"
+            android:background="#1E293B" />
+
+        <!-- Status pill -->
+        <TextView
+            android:id="@+id/statusPill"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="● LIVE DETECTION"
+            android:textColor="#00E676"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1" />
+
+        <!-- Hidden legacy views needed by MainActivity -->
+        <TextView
+            android:id="@+id/manifestLogView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
     </LinearLayout>
 
-    <!-- Full-Screen Simulated Lockout Screen (Hidden by default) -->
+    <!-- Full-Screen Lockout Overlay (Class B Detected) -->
     <RelativeLayout
         android:id="@+id/lockoutOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#D32F2F"
+        android:background="#F01A0A0A"
         android:gravity="center"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
@@ -71,38 +169,59 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
             android:gravity="center"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:paddingStart="36dp"
+            android:paddingEnd="36dp">
 
+            <!-- Warning icon area -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="SYSTEM LOCKED"
-                android:textColor="#FFFFFF"
-                android:textSize="32sp"
-                android:textStyle="bold" />
+                android:text="⚠"
+                android:textColor="#EF4444"
+                android:textSize="72sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:gravity="center"
-                android:text="Target Profile Engaged.\nSecurity Payload Deployed Silently."
+                android:text="SYSTEM LOCKED"
                 android:textColor="#FFFFFF"
-                android:textSize="18sp" />
+                android:textSize="30sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1" />
 
             <TextView
-                android:id="@+id/manifestLogView"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="UNAUTHORIZED ACCESS DETECTED"
+                android:textColor="#EF4444"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.25" />
+
+            <!-- Separator line -->
+            <View
+                android:layout_width="60dp"
+                android:layout_height="2dp"
                 android:layout_marginTop="24dp"
-                android:text="File Manifest Created at /storage/emulated/0"
-                android:textColor="#FFCDD2"
+                android:layout_marginBottom="24dp"
+                android:background="#EF4444" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Target biometric profile matched.\nSecurity countermeasures deployed.\nAll access to protected resources suspended."
+                android:textColor="#94A3B8"
                 android:textSize="14sp"
-                android:textStyle="italic" />
+                android:gravity="center"
+                android:lineSpacingMultiplier="1.5" />
+
         </LinearLayout>
     </RelativeLayout>
 

